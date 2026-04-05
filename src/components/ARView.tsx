@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { ARButton } from 'three/examples/jsm/webxr/ARButton.js';
 
 type Mode = 'distance' | 'area';
 
@@ -12,11 +11,13 @@ export default function ARView() {
   const [isARActive, setIsARActive] = useState(false);
   const [isCameraStarted, setIsCameraStarted] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [arError, setArError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const uiRef = useRef<HTMLDivElement>(null);
-  const buttonContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const startButtonRef = useRef<HTMLButtonElement>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
   const reticleRef = useRef<THREE.Mesh | null>(null);
@@ -49,6 +50,7 @@ export default function ARView() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.xr.enabled = true;
     containerRef.current.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
 
     const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
     light.position.set(0.5, 1, 0.25);
@@ -61,18 +63,6 @@ export default function ARView() {
     reticle.visible = false;
     scene.add(reticle);
     reticleRef.current = reticle;
-
-    const button = ARButton.createButton(renderer, {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: uiRef.current }
-    });
-    
-    button.id = 'ar-button';
-    
-    if (buttonContainerRef.current) {
-      buttonContainerRef.current.appendChild(button);
-    }
 
     let hitTestSource: any = null;
     let hitTestSourceRequested = false;
@@ -132,11 +122,51 @@ export default function ARView() {
       if (containerRef.current && renderer.domElement.parentNode === containerRef.current) {
         containerRef.current.removeChild(renderer.domElement);
       }
-      if (button.parentNode) {
-        button.parentNode.removeChild(button);
-      }
     };
   }, [xrSupported]);
+
+  useEffect(() => {
+    const btn = startButtonRef.current;
+    if (!btn) return;
+
+    const handleNativeClick = async () => {
+      if (!rendererRef.current) {
+        alert("Error: El motor 3D no está inicializado.");
+        return;
+      }
+      if (!uiRef.current) {
+        alert("Error: La interfaz no está lista.");
+        return;
+      }
+      
+      try {
+        setArError(null);
+        
+        const sessionInit = {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['dom-overlay'],
+          domOverlay: { root: uiRef.current }
+        };
+        const session = await (navigator as any).xr.requestSession('immersive-ar', sessionInit);
+        await rendererRef.current.xr.setSession(session);
+      } catch (err: any) {
+        console.error("AR Session Error:", err);
+        const msg = err.message || "Error desconocido al iniciar AR.";
+        setArError(msg);
+        alert("No se pudo iniciar AR: " + msg + "\n\nAsegúrate de usar Chrome en Android y dar permisos de cámara.");
+      }
+    };
+
+    btn.addEventListener('click', handleNativeClick);
+    return () => btn.removeEventListener('click', handleNativeClick);
+  }, [xrSupported, isARActive]);
+
+  const handleExitAR = () => {
+    const session = rendererRef.current?.xr.getSession();
+    if (session) {
+      session.end();
+    }
+  };
 
   const startFallbackCamera = async () => {
     try {
@@ -242,28 +272,6 @@ export default function ARView() {
 
   return (
     <div className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col">
-      <style>{`
-        #ar-button {
-          position: absolute !important;
-          bottom: 20% !important;
-          left: 50% !important;
-          transform: translateX(-50%) !important;
-          z-index: 999 !important;
-          background-color: #00f5ff !important;
-          color: #000 !important;
-          font-weight: bold !important;
-          padding: 16px 32px !important;
-          border-radius: 12px !important;
-          font-size: 18px !important;
-          border: none !important;
-          box-shadow: 0 4px 20px rgba(0, 245, 255, 0.4) !important;
-          width: auto !important;
-          min-width: 200px !important;
-          opacity: 1 !important;
-          cursor: pointer !important;
-          pointer-events: auto !important;
-        }
-      `}</style>
       <div ref={containerRef} className="absolute inset-0 z-0" />
       
       {xrSupported === false && (
@@ -322,24 +330,50 @@ export default function ARView() {
       )}
 
       {xrSupported === true && !isARActive && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/90 pointer-events-none">
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/90 pointer-events-auto">
           <span className="material-symbols-outlined text-6xl text-primary-container mb-4 animate-bounce">view_in_ar</span>
           <h2 className="text-2xl font-headline text-white mb-2 font-bold">AR Precision Measure</h2>
-          <p className="text-gray-400 mb-8 text-center max-w-sm px-6">Toca el botón "START AR" en la parte inferior para iniciar la cámara.</p>
+          <p className="text-gray-400 mb-8 text-center max-w-sm px-6">Toca el botón para iniciar la cámara y comenzar a medir.</p>
+          
+          {arError && (
+            <div className="bg-error/20 text-error p-4 rounded-lg mb-6 text-sm max-w-sm border border-error/50 text-center">
+              <p className="font-bold mb-1">Error al iniciar AR:</p>
+              <p>{arError}</p>
+            </div>
+          )}
+
+          <button 
+            ref={startButtonRef}
+            className="bg-[#00f5ff] text-black font-bold py-4 px-10 rounded-xl shadow-[0_4px_20px_rgba(0,245,255,0.4)] active:scale-95 transition-transform text-xl cursor-pointer"
+          >
+            START AR
+          </button>
         </div>
       )}
 
-      <div ref={buttonContainerRef} className="absolute inset-0 z-20 pointer-events-none" />
-
-      <div ref={uiRef} className="absolute inset-0 z-30 pointer-events-none flex flex-col" style={{ display: (xrSupported === false || isARActive) ? 'flex' : 'none' }}>
-        <header className="relative z-50 flex justify-between items-center px-6 py-6 w-full bg-gradient-to-b from-black/80 to-transparent">
+      <div 
+        ref={uiRef} 
+        className="absolute inset-0 z-30 pointer-events-none flex flex-col transition-opacity duration-300" 
+        style={{ 
+          opacity: (xrSupported === false || isARActive) ? 1 : 0,
+          pointerEvents: 'none'
+        }}
+      >
+        <header className="relative z-50 flex justify-between items-center px-6 py-6 w-full bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-primary-container">view_in_ar</span>
             <h1 className="font-black text-primary-container drop-shadow-[0_0_8px_rgba(0,245,255,0.5)] font-headline tracking-widest uppercase text-sm">AR Measure</h1>
           </div>
-          <button onClick={handleReset} className="text-white hover:text-error hover:bg-error/20 p-3 rounded-full transition-all bg-black/40 backdrop-blur-md border border-white/10 cursor-pointer pointer-events-auto" title="Reiniciar medición">
-            <span className="material-symbols-outlined">delete</span>
-          </button>
+          <div className="flex gap-3 pointer-events-auto">
+            <button onClick={handleReset} className="text-white hover:text-error hover:bg-error/20 p-3 rounded-full transition-all bg-black/40 backdrop-blur-md border border-white/10 cursor-pointer" title="Reiniciar medición">
+              <span className="material-symbols-outlined">delete</span>
+            </button>
+            {isARActive && (
+              <button onClick={handleExitAR} className="text-white hover:text-error hover:bg-error/20 p-3 rounded-full transition-all bg-black/40 backdrop-blur-md border border-white/10 cursor-pointer" title="Salir de AR">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            )}
+          </div>
         </header>
         
         <main className="relative z-10 flex-1 w-full flex flex-col items-center justify-center">
