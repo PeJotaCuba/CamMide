@@ -15,6 +15,7 @@ export default function ARView() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const uiRef = useRef<HTMLDivElement>(null);
+  const buttonContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -67,22 +68,11 @@ export default function ARView() {
       domOverlay: { root: uiRef.current }
     });
     
-    // Style the AR button to be very prominent
-    button.style.position = 'absolute';
-    button.style.bottom = '20%';
-    button.style.left = '50%';
-    button.style.transform = 'translateX(-50%)';
-    button.style.zIndex = '999';
-    button.style.backgroundColor = '#00f5ff';
-    button.style.color = '#000';
-    button.style.fontWeight = 'bold';
-    button.style.padding = '16px 32px';
-    button.style.borderRadius = '12px';
-    button.style.fontSize = '18px';
-    button.style.border = 'none';
-    button.style.boxShadow = '0 4px 20px rgba(0, 245, 255, 0.4)';
+    button.id = 'ar-button';
     
-    containerRef.current.appendChild(button);
+    if (buttonContainerRef.current) {
+      buttonContainerRef.current.appendChild(button);
+    }
 
     let hitTestSource: any = null;
     let hitTestSourceRequested = false;
@@ -252,6 +242,28 @@ export default function ARView() {
 
   return (
     <div className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col">
+      <style>{`
+        #ar-button {
+          position: absolute !important;
+          bottom: 20% !important;
+          left: 50% !important;
+          transform: translateX(-50%) !important;
+          z-index: 999 !important;
+          background-color: #00f5ff !important;
+          color: #000 !important;
+          font-weight: bold !important;
+          padding: 16px 32px !important;
+          border-radius: 12px !important;
+          font-size: 18px !important;
+          border: none !important;
+          box-shadow: 0 4px 20px rgba(0, 245, 255, 0.4) !important;
+          width: auto !important;
+          min-width: 200px !important;
+          opacity: 1 !important;
+          cursor: pointer !important;
+          pointer-events: auto !important;
+        }
+      `}</style>
       <div ref={containerRef} className="absolute inset-0 z-0" />
       
       {xrSupported === false && (
@@ -317,7 +329,9 @@ export default function ARView() {
         </div>
       )}
 
-      <div ref={uiRef} className="absolute inset-0 pointer-events-none flex flex-col" style={{ display: (xrSupported === false || isARActive) ? 'flex' : 'none' }}>
+      <div ref={buttonContainerRef} className="absolute inset-0 z-20 pointer-events-none" />
+
+      <div ref={uiRef} className="absolute inset-0 z-30 pointer-events-none flex flex-col" style={{ display: (xrSupported === false || isARActive) ? 'flex' : 'none' }}>
         <header className="relative z-50 flex justify-between items-center px-6 py-6 w-full bg-gradient-to-b from-black/80 to-transparent">
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-primary-container">view_in_ar</span>
