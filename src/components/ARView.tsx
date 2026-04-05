@@ -10,6 +10,8 @@ export default function ARView() {
   const [measurement, setMeasurement] = useState<number>(0);
   const [xrSupported, setXrSupported] = useState<boolean | null>(null);
   const [isARActive, setIsARActive] = useState(false);
+  const [isCameraStarted, setIsCameraStarted] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const uiRef = useRef<HTMLDivElement>(null);
@@ -23,9 +25,11 @@ export default function ARView() {
   const [fallbackPoints, setFallbackPoints] = useState<{x: number, y: number}[]>([]);
 
   useEffect(() => {
-    if ('xr' in navigator) {
+    if ('xr' in navigator && (navigator as any).xr) {
       (navigator as any).xr.isSessionSupported('immersive-ar').then((supported: boolean) => {
         setXrSupported(supported);
+      }).catch(() => {
+        setXrSupported(false);
       });
     } else {
       setXrSupported(false);
@@ -62,16 +66,22 @@ export default function ARView() {
       optionalFeatures: ['dom-overlay'],
       domOverlay: { root: uiRef.current }
     });
+    
+    // Style the AR button to be very prominent
     button.style.position = 'absolute';
-    button.style.bottom = '120px';
+    button.style.bottom = '20%';
     button.style.left = '50%';
     button.style.transform = 'translateX(-50%)';
     button.style.zIndex = '999';
     button.style.backgroundColor = '#00f5ff';
     button.style.color = '#000';
     button.style.fontWeight = 'bold';
-    button.style.padding = '12px 24px';
-    button.style.borderRadius = '8px';
+    button.style.padding = '16px 32px';
+    button.style.borderRadius = '12px';
+    button.style.fontSize = '18px';
+    button.style.border = 'none';
+    button.style.boxShadow = '0 4px 20px rgba(0, 245, 255, 0.4)';
+    
     containerRef.current.appendChild(button);
 
     let hitTestSource: any = null;
@@ -138,15 +148,20 @@ export default function ARView() {
     };
   }, [xrSupported]);
 
-  useEffect(() => {
-    if (xrSupported === false) {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then(stream => {
-          if (videoRef.current) videoRef.current.srcObject = stream;
-        })
-        .catch(err => console.error("Camera error:", err));
+  const startFallbackCamera = async () => {
+    try {
+      setCameraError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setIsCameraStarted(true);
+      }
+    } catch (err: any) {
+      console.error("Camera error:", err);
+      setCameraError(err.message || "Permiso denegado o cámara no disponible.");
     }
-  }, [xrSupported]);
+  };
 
   const handleReset = () => {
     pointsRef.current = [];
@@ -206,7 +221,7 @@ export default function ARView() {
   };
 
   const handleFallbackClick = (e: React.MouseEvent) => {
-    if (xrSupported !== false) return;
+    if (xrSupported !== false || !isCameraStarted) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -238,9 +253,18 @@ export default function ARView() {
   return (
     <div className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col">
       <div ref={containerRef} className="absolute inset-0 z-0" />
+      
       {xrSupported === false && (
-        <div className="absolute inset-0 z-0 cursor-crosshair" onClick={handleFallbackClick}>
-          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+        <div className="absolute inset-0 z-0 bg-black">
+          <video 
+            ref={videoRef} 
+            autoPlay 
+            playsInline 
+            muted 
+            className="w-full h-full object-cover cursor-crosshair" 
+            onClick={handleFallbackClick} 
+          />
+          
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             {fallbackPoints.map((p, i) => (
               <circle key={i} cx={p.x} cy={p.y} r="8" fill="#00f5ff" stroke="#fff" strokeWidth="2" />
@@ -255,20 +279,44 @@ export default function ARView() {
               />
             )}
           </svg>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white bg-black/70 backdrop-blur-md p-6 rounded-2xl text-center pointer-events-none border border-white/10 shadow-2xl">
-            <span className="material-symbols-outlined text-4xl text-error mb-2">warning</span>
-            <p className="font-bold mb-2">WebXR no soportado</p>
-            <p className="text-sm text-gray-300 max-w-xs">Estás en modo simulación 2D. Toca la pantalla para medir sobre la imagen de la cámara. Para AR real, usa Chrome en Android.</p>
-          </div>
+
+          {!isCameraStarted && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/95 p-6 text-center">
+              <span className="material-symbols-outlined text-5xl text-error mb-4">no_photography</span>
+              <h2 className="text-2xl font-bold text-white mb-2">Modo Simulación 2D</h2>
+              <p className="text-gray-400 mb-6 max-w-sm">Tu dispositivo o navegador no soporta WebXR. Puedes usar el modo de simulación 2D.</p>
+              
+              {cameraError && (
+                <div className="bg-error/20 text-error p-3 rounded-lg mb-6 text-sm max-w-sm border border-error/50">
+                  Error: {cameraError}
+                </div>
+              )}
+
+              <button 
+                onClick={startFallbackCamera}
+                className="bg-primary-container text-on-primary-container font-bold py-4 px-8 rounded-full shadow-[0_0_15px_rgba(0,245,255,0.4)] active:scale-95 transition-transform text-lg"
+              >
+                Activar Cámara
+              </button>
+            </div>
+          )}
+
+          {isCameraStarted && (
+            <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-md text-white text-xs px-3 py-1 rounded-full border border-white/20 pointer-events-none z-10">
+              Modo 2D (Sin AR real)
+            </div>
+          )}
         </div>
       )}
+
       {xrSupported === true && !isARActive && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-lowest pointer-events-none">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/90 pointer-events-none">
           <span className="material-symbols-outlined text-6xl text-primary-container mb-4 animate-bounce">view_in_ar</span>
           <h2 className="text-2xl font-headline text-white mb-2 font-bold">AR Precision Measure</h2>
-          <p className="text-gray-400 mb-8 text-center max-w-sm px-6">Apunta tu cámara al suelo y mueve el dispositivo lentamente para calibrar.</p>
+          <p className="text-gray-400 mb-8 text-center max-w-sm px-6">Toca el botón "START AR" en la parte inferior para iniciar la cámara.</p>
         </div>
       )}
+
       <div ref={uiRef} className="absolute inset-0 pointer-events-none flex flex-col" style={{ display: (xrSupported === false || isARActive) ? 'flex' : 'none' }}>
         <header className="relative z-50 flex justify-between items-center px-6 py-6 w-full bg-gradient-to-b from-black/80 to-transparent">
           <div className="flex items-center gap-3">
@@ -279,6 +327,7 @@ export default function ARView() {
             <span className="material-symbols-outlined">delete</span>
           </button>
         </header>
+        
         <main className="relative z-10 flex-1 w-full flex flex-col items-center justify-center">
           <div className="absolute top-4 flex flex-col items-center pointer-events-auto">
             <div className="bg-surface-container-low/80 backdrop-blur-2xl px-8 py-4 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center">
@@ -290,12 +339,14 @@ export default function ARView() {
               <div className="mt-2 text-xs text-on-surface-variant font-mono">Puntos anclados: {pointsCount}</div>
             </div>
           </div>
+          
           {xrSupported && isARActive && (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-16 whitespace-nowrap bg-black/60 backdrop-blur-md px-4 py-1.5 rounded-full border border-primary-container/30">
               <span className="text-[11px] font-bold text-primary-container tracking-wider uppercase font-headline">Apunta y añade un punto</span>
             </div>
           )}
         </main>
+
         <div className="relative z-50 w-full pb-8 pt-6 bg-gradient-to-t from-black/90 to-transparent flex flex-col items-center gap-6">
           <div className="flex bg-black/60 backdrop-blur-xl p-1.5 rounded-full border border-white/10 pointer-events-auto">
             <button onClick={() => setMode('distance')} className={`px-6 py-2.5 rounded-full text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${mode === 'distance' ? 'bg-primary-container text-on-primary-container shadow-[0_0_15px_rgba(0,245,255,0.4)]' : 'text-on-surface-variant hover:text-white'}`}>
@@ -305,6 +356,7 @@ export default function ARView() {
               <span className="material-symbols-outlined text-sm">layers</span>Área
             </button>
           </div>
+          
           {xrSupported && isARActive && (
             <button onClick={handleAddPoint} className="group relative flex items-center justify-center cursor-pointer pointer-events-auto mb-4">
               <div className="absolute inset-0 bg-white rounded-full blur-xl opacity-20 group-hover:opacity-40 transition-opacity"></div>

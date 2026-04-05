@@ -2,6 +2,7 @@
   "name": "AR Precision Measure",
   "description": "Mide distancias y áreas fácilmente usando Realidad Aumentada",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "xr-spatial-tracking"
   ]
 }
